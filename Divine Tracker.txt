@@ -1,0 +1,128 @@
+local ENABLED = true
+local lastDivineTime = 0
+local divineCooldown = 2
+
+-- PON TU WEBHOOK AQUÍ ABAJO 👇
+local _WEBHOOK = "https://discord.com/api/webhooks/1538662891610447953/V6fRkSL_sbPeHaay2a_oWBcQWam-Lbu89J8vi9h-uWywfM1qj_6QkkhCi5ksPSocxyp0"
+
+local Synchronizer = nil
+local AnimalsData = nil
+local AnimalsShared = nil
+local NumberUtils = nil
+
+local LocalPlayer = game:GetService("Players").LocalPlayer
+local HttpService = game:GetService("HttpService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+pcall(function()
+    Synchronizer = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("Synchronizer"))
+    AnimalsData = require(ReplicatedStorage:WaitForChild("Datas"):WaitForChild("Animals"))
+    AnimalsShared = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Animals"))
+    NumberUtils = require(ReplicatedStorage:WaitForChild("Utils"):WaitForChild("NumberUtils"))
+end)
+
+local function getBrainrotImage(brainrotName)
+    local encoded = brainrotName:gsub(" ", "%%20")
+    local url = ("https://stealabrainrot.fandom.com/api.php?action=query&prop=pageimages&format=json&piprop=thumbnail&pithumbsize=500&titles=%s"):format(encoded)
+    local ok, result = pcall(function()
+        local response = httpRequest({ Url = url, Method = "GET" })
+        if response and response.StatusCode == 200 then
+            local data = HttpService:JSONDecode(response.Body)
+            local pages = data and data.query and data.query.pages
+            if pages then
+                for _, page in pairs(pages) do
+                    if page.thumbnail and page.thumbnail.source then
+                        return page.thumbnail.source
+                    end
+                end
+            end
+        end
+        return nil
+    end)
+    if ok then return result end
+    return nil
+end
+
+local function sendDivineWebhook(petName, value, mutation, imageUrl)
+    local embed = {
+        embeds = {{
+            title = "✨ TP DIVINE User — Mutación Detectada!",
+            color = 0xFFD700,
+            fields = {
+                {name = "Brainrot", value = "```\n" .. petName .. "\n```", inline = false},
+                {name = "Value", value = "```\n" .. value .. "\n```", inline = true},
+                {name = "Mutación", value = "```\n" .. (mutation or "None") .. "\n```", inline = true},
+                {name = "TP DIVINE User", value = "```\n" .. LocalPlayer.Name .. " (" .. LocalPlayer.UserId .. ")\n```", inline = false},
+            },
+            footer = {text = "Divine Tracker • " .. os.date("%X")},
+            timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
+        }}
+    }
+    if imageUrl then
+        embed.embeds[1].thumbnail = {url = imageUrl}
+    end
+    pcall(function()
+        if Library_Request and Library_Request.Request then
+            Library_Request.Request({
+                Url = _WEBHOOK,
+                Method = "POST",
+                Headers = {["Content-Type"] = "application/json"},
+                Body = HttpService:JSONEncode(embed)
+            })
+        end
+    end)
+end
+
+local eventPath = ReplicatedStorage:FindFirstChild("Packages")
+if eventPath then
+    eventPath = eventPath:FindFirstChild("Synchronizer")
+    if eventPath then
+        eventPath = eventPath:FindFirstChild("Channel")
+        if eventPath then
+            local Event = eventPath:FindFirstChild(LocalPlayer.Name)
+            if Event then
+                Event.OnClientEvent:Connect(function(data)
+                    if not ENABLED or not data then return end
+
+                    local now = tick()
+                    if now - lastDivineTime < divineCooldown then return end
+
+                    for _, entry in pairs(data) do
+                        if entry[1] == "StealHistory" and entry[2] == "ArrayInsert" then
+                            local info = entry[3]
+
+                            -- Sin filtro de mutación — todas pasan
+                            local mutation = (info.Brainrot and info.Brainrot.Mutation) or "None"
+
+                            lastDivineTime = now
+
+                            local conn
+                            local done = false
+                            task.delay(5, function()
+                                if not done and conn then conn:Disconnect() end
+                            end)
+
+                            conn = workspace.Debris.ChildAdded:Connect(function(child)
+                                if done then return end
+                                local overhead = child:FindFirstChild("AnimalOverhead")
+                                if overhead then
+                                    local displayName = overhead:FindFirstChild("DisplayName")
+                                    if displayName and displayName.Text == info.Brainrot.Index then
+                                        local generation = overhead:FindFirstChild("Generation")
+                                        local moneyText = generation and generation.Text or "???"
+                                        done = true
+                                        conn:Disconnect()
+                                        task.spawn(function()
+                                            local imageUrl = getBrainrotImage(info.Brainrot.Index)
+                                            sendDivineWebhook(info.Brainrot.Index, moneyText, mutation, imageUrl)
+                                        end)
+                                    end
+                                end
+                            end)
+                        end
+                    end
+                end)
+            end
+        end
+    end
+end
